@@ -1,4 +1,5 @@
 // src/App.jsx
+import FormateurView from './pages/FormateurView.jsx';
 import { Routes, Route, Link } from 'react-router-dom';
 import Listing from './pages/Listing.jsx';
 import FormateurView from './pages/FormateurView.jsx'; // ← ajout
@@ -15,6 +16,7 @@ export default function App() {
       </nav>
 
       <Routes>
+        <Route path="/formateur/:index" element={<FormateurView />} />
         <Route path="/" element={<HomeTest />} />
         <Route path="/listing" element={<Listing />} />
         <Route path="/formateur/:index" element={<FormateurView />} /> {/* ← ajout */}
