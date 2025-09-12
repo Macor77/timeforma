@@ -1,12 +1,9 @@
 // src/App.jsx
 import { Routes, Route, Link } from 'react-router-dom';
+import Listing from './pages/Listing.jsx'; // ⚠️ respecte bien la casse et le chemin
 
-function HomeTest() {
-  return <div style={{padding:20}}>🏠 HomeTest OK</div>;
-}
-function NotFound() {
-  return <div style={{padding:20, color:'#b00'}}>404 route inconnue</div>;
-}
+function HomeTest() { return <div style={{padding:20}}>🏠 HomeTest OK</div>; }
+function NotFound() { return <div style={{padding:20, color:'#b00'}}>404 route inconnue</div>; }
 
 export default function App() {
   return (
@@ -18,6 +15,7 @@ export default function App() {
 
       <Routes>
         <Route path="/" element={<HomeTest />} />
+        <Route path="/listing" element={<Listing />} />
         <Route path="*" element={<NotFound />} />
       </Routes>
     </div>
