@@ -1,13 +1,10 @@
-import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { BrowserRouter } from 'react-router-dom';
-import App from './App.jsx';
-import './index.css';
 
-createRoot(document.getElementById('root')).render(
-  <StrictMode>
-    <BrowserRouter>
-      <App />
-    </BrowserRouter>
-  </StrictMode>
+const el = document.getElementById('root');
+console.log('BOOT', !!el ? 'root OK' : 'root MISSING');
+
+createRoot(el).render(
+  <div style={{fontFamily:'system-ui', padding:20}}>
+    ✅ Vercel charge le JS. (test minimal)
+  </div>
 );
