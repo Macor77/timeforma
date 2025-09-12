@@ -1,9 +1,8 @@
-// src/pages/FormateurView.jsx
 import { useParams, useNavigate } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import AvailabilityCalendar from '../components/AvailabilityCalendar.jsx';
 
-// Petit helper : parse localStorage sans jamais crasher
+// Helper pour éviter les crashs
 function safeGet(key, fallback) {
   try {
     const raw = localStorage.getItem(key);
@@ -14,15 +13,14 @@ function safeGet(key, fallback) {
 }
 
 export default function FormateurView() {
-  const { index } = useParams();          // /formateur/:index
+  const { index } = useParams();
   const navigate = useNavigate();
   const [formateur, setFormateur] = useState(null);
 
   useEffect(() => {
-    const data = safeGet('formateurs', []); // pas d’erreur même si valeur corrompue
+    const data = safeGet('formateurs', []);
     const idx = Number(index);
 
-    // Garde : index invalide → on renvoie vers la liste
     if (!Number.isInteger(idx) || idx < 0 || idx >= data.length) {
       navigate('/listing', { replace: true });
       return;
@@ -34,12 +32,8 @@ export default function FormateurView() {
   if (!formateur) return <div style={{ padding: 20 }}>Chargement…</div>;
 
   return (
-    <div style={{ padding: 20, fontFamily: 'system-ui' }}>
-      <h2 style={{ marginBottom: 12 }}>
-        {formateur?.nom ?? 'Formateur'} {formateur?.prenom ?? ''}
-      </h2>
-
-      {/* ton calendrier d’indispos */}
+    <div style={{ padding: 20 }}>
+      <h2>{formateur?.nom ?? 'Formateur'} {formateur?.prenom ?? ''}</h2>
       <AvailabilityCalendar />
     </div>
   );
