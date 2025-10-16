@@ -1,411 +1,215 @@
-// src/pages/FormateurForm.jsx
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { supabase } from '../lib/supabaseClient';
 
-const DEFAULTS = {
+const EMPTY = {
   prenom: '',
   nom: '',
   ville: '',
   codePostal: '',
-  adresse: '',
-  latitude: '',
-  longitude: '',
-  mail: '',
-  telephone: '',
-  competences: [],   // chips
-  materiel: [],      // chips (nouveau)
+  competences: [],
+  materiel: [],
+  statut: 'Inactif',
   tarif: '',
-  note: '',
-  statut: 'Standard',
-  dispo: {},         // pour le planning
-  dispoUpdatedAt: '',// <-- nouveau : horodatage dernière MAJ du planning
+  telephone: '',
+  email: '',
+  adresse: '',
+  notes: '',
 };
 
 export default function FormateurForm() {
-  const { index } = useParams();
+  const { id } = useParams(); // undefined => création
   const navigate = useNavigate();
+  const [form, setForm] = useState(EMPTY);
+  const [loading, setLoading] = useState(!!id);
+  const [err, setErr] = useState(null);
 
-  const [formateur, setFormateur] = useState(DEFAULTS);
+  // helpers
+  const norm = (s) => s.trim();
+  const splitToArray = (text) =>
+    text.split(/[,\n;]+/).map(norm).filter(Boolean);
 
-  // saisies en cours pour chips
-  const [competenceInput, setCompetenceInput] = useState('');
-  const [materielInput, setMaterielInput] = useState('');
-
-  const [notFound, setNotFound] = useState(false);
-
-  // -------- Chargement (création/édition) --------
   useEffect(() => {
-    if (index === undefined) {
-      setFormateur(DEFAULTS);
-      return;
-    }
-    const list = JSON.parse(localStorage.getItem('formateurs')) || [];
-    const idx = Number(index);
+    if (!id) return;
+    (async () => {
+      setLoading(true);
+      const { data, error } = await supabase
+        .from('trainers')
+        .select('*')
+        .eq('id', id)
+        .single();
 
-    if (Number.isNaN(idx) || idx < 0 || idx >= list.length) {
-      setNotFound(true);
-      return;
-    }
-
-    const loaded = list[idx] || {};
-    const normalizeToArray = (value) => {
-      if (Array.isArray(value)) return value;
-      if (typeof value === 'string' && value.trim().length) {
-        return value.split(/[;,]/).map(s => s.trim()).filter(Boolean);
+      if (error) {
+        setErr(error.message);
+      } else if (data) {
+        setForm({
+          prenom: data.prenom ?? '',
+          nom: data.nom ?? '',
+          ville: data.ville ?? '',
+          codePostal: data.code_postal ?? '',
+          competences: Array.isArray(data.competences) ? data.competences : (data.competences ?? []),
+          materiel: Array.isArray(data.materiel) ? data.materiel : (data.materiel ?? []),
+          statut: data.statut ?? 'Inactif',
+          tarif: data.tarif ?? '',
+          telephone: data.telephone ?? '',
+          email: data.email ?? '',
+          adresse: data.adresse ?? '',
+          notes: data.notes ?? '',
+        });
       }
-      return [];
-    };
+      setLoading(false);
+    })();
+  }, [id]);
 
-    const normalized = {
-      ...DEFAULTS,
-      ...loaded,
-      competences: normalizeToArray(loaded.competences),
-      materiel:    normalizeToArray(loaded.materiel),
-      note: typeof loaded.note === 'string' ? loaded.note : '',
-      dispo: (loaded && typeof loaded.dispo === 'object' && loaded.dispo !== null) ? loaded.dispo : {},
-      dispoUpdatedAt: typeof loaded.dispoUpdatedAt === 'string' ? loaded.dispoUpdatedAt : '', // <-- préserver l'existant
-    };
-
-    setFormateur(normalized);
-  }, [index]);
-
-  // -------- Helpers généraux --------
-  const handleChange = (e) => {
+  const onChange = (e) => {
     const { name, value } = e.target;
-    setFormateur((prev) => ({ ...prev, [name]: value }));
+    setForm((prev) => ({ ...prev, [name]: value }));
   };
 
-  // -------- Chips: Compétences --------
-  const addCompetence = (raw) => {
-    const text = (raw || '').trim();
-    if (!text) return;
-    setFormateur(prev => {
-      const exists = prev.competences.some(c => c.toLowerCase() === text.toLowerCase());
-      if (exists) return prev;
-      return { ...prev, competences: [...prev.competences, text] };
-    });
-    setCompetenceInput('');
-  };
+  function ChipsInput({ label, values, onChangeValues, placeholder }) {
+    const [input, setInput] = useState('');
+    const inputRef = useRef(null);
 
-  const handleCompetenceKeyDown = (e) => {
-    if (e.key === 'Enter' || e.key === ';' || e.key === ',') {
-      e.preventDefault();
-      addCompetence(competenceInput);
-    }
-    if (e.key === 'Backspace' && competenceInput.length === 0 && formateur.competences.length > 0) {
-      setFormateur(prev => ({ ...prev, competences: prev.competences.slice(0, -1) }));
-    }
-  };
-
-  const handleCompetencePaste = (e) => {
-    const pasted = e.clipboardData.getData('text');
-    if (!pasted) return;
-    const parts = pasted.split(/[\n;,]/).map(s => s.trim()).filter(Boolean);
-    if (parts.length > 1) {
-      e.preventDefault();
-      setFormateur(prev => {
-        const existing = new Set(prev.competences.map(c => c.toLowerCase()));
-        const toAdd = parts.filter(p => !existing.has(p.toLowerCase()));
-        return { ...prev, competences: [...prev.competences, ...toAdd] };
-      });
-      setCompetenceInput('');
-    }
-  };
-
-  const removeCompetence = (comp) => {
-    setFormateur(prev => ({
-      ...prev,
-      competences: prev.competences.filter(c => c !== comp),
-    }));
-  };
-
-  // -------- Chips: Matériel --------
-  const addMateriel = (raw) => {
-    const text = (raw || '').trim();
-    if (!text) return;
-    setFormateur(prev => {
-      const exists = prev.materiel.some(c => c.toLowerCase() === text.toLowerCase());
-      if (exists) return prev;
-      return { ...prev, materiel: [...prev.materiel, text] };
-    });
-    setMaterielInput('');
-  };
-
-  const handleMaterielKeyDown = (e) => {
-    if (e.key === 'Enter' || e.key === ';' || e.key === ',') {
-      e.preventDefault();
-      addMateriel(materielInput);
-    }
-    if (e.key === 'Backspace' && materielInput.length === 0 && formateur.materiel.length > 0) {
-      setFormateur(prev => ({ ...prev, materiel: prev.materiel.slice(0, -1) }));
-    }
-  };
-
-  const handleMaterielPaste = (e) => {
-    const pasted = e.clipboardData.getData('text');
-    if (!pasted) return;
-    const parts = pasted.split(/[\n;,]/).map(s => s.trim()).filter(Boolean);
-    if (parts.length > 1) {
-      e.preventDefault();
-      setFormateur(prev => {
-        const existing = new Set(prev.materiel.map(c => c.toLowerCase()));
-        const toAdd = parts.filter(p => !existing.has(p.toLowerCase()));
-        return { ...prev, materiel: [...prev.materiel, ...toAdd] };
-      });
-      setMaterielInput('');
-    }
-  };
-
-  const removeMateriel = (item) => {
-    setFormateur(prev => ({
-      ...prev,
-      materiel: prev.materiel.filter(c => c !== item),
-    }));
-  };
-
-  // -------- Soumission --------
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-
-    // Ajoute les saisies en cours
-    if (competenceInput.trim()) addCompetence(competenceInput);
-    if (materielInput.trim()) addMateriel(materielInput);
-    await new Promise(r => setTimeout(r, 0)); // attend la mise à jour de state
-
-    // géocodage léger
-    let { latitude, longitude } = formateur;
-    if (formateur.ville && formateur.codePostal) {
-      try {
-        const q = encodeURIComponent(`${formateur.adresse || ''}, ${formateur.codePostal} ${formateur.ville}`);
-        const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${q}`);
-        const data = await res.json();
-        if (Array.isArray(data) && data.length > 0) {
-          latitude = data[0].lat;
-          longitude = data[0].lon;
-        }
-      } catch (err) {
-        console.warn('Géocodage indisponible, on continue sans:', err);
-      }
-    }
-
-    const list = JSON.parse(localStorage.getItem('formateurs')) || [];
-    const updated = {
-      ...DEFAULTS,
-      ...formateur,
-      latitude: latitude || '',
-      longitude: longitude || '',
-      competences: Array.isArray(formateur.competences) ? formateur.competences : [],
-      materiel: Array.isArray(formateur.materiel) ? formateur.materiel : [],
-      note: typeof formateur.note === 'string' ? formateur.note : '',
-      dispo: (formateur && typeof formateur.dispo === 'object' && formateur.dispo !== null) ? formateur.dispo : {},
-      // on conserve l'horodatage existant (il est mis à jour par la fiche via le calendrier)
-      dispoUpdatedAt: typeof formateur.dispoUpdatedAt === 'string' ? formateur.dispoUpdatedAt : '',
+    const addValue = (v) => {
+      const val = norm(v);
+      if (!val) return;
+      if (values.includes(val)) return;
+      onChangeValues([...values, val]);
+      setInput('');
     };
 
-    if (index === undefined) {
-      list.push(updated);
-    } else {
-      const idx = Number(index);
-      if (Number.isNaN(idx) || idx < 0 || idx >= list.length) {
-        alert('Formateur introuvable.');
-        navigate('/listing');
-        return;
+    const removeAt = (idx) => {
+      const next = [...values];
+      next.splice(idx, 1);
+      onChangeValues(next);
+    };
+
+    const handleKeyDown = (e) => {
+      if (e.key === 'Enter' || e.key === ',' || e.key === ';') {
+        e.preventDefault();
+        if (input) addValue(input);
+      } else if (e.key === 'Backspace' && !input && values.length > 0) {
+        removeAt(values.length - 1);
       }
-      list[idx] = updated;
-    }
+    };
 
-    localStorage.setItem('formateurs', JSON.stringify(list));
-    navigate('/listing');
-  };
+    const handleBlur = () => { if (input) addValue(input); };
+    const handlePaste = (e) => {
+      const text = e.clipboardData.getData('text');
+      if (text && /[,;\n]/.test(text)) {
+        e.preventDefault();
+        const arr = splitToArray(text);
+        if (arr.length) onChangeValues([...values, ...arr.filter((v) => !values.includes(v))]);
+        setInput('');
+      }
+    };
 
-  if (notFound) {
     return (
-      <div style={{ padding: '1rem' }}>
-        <h3>Formateur introuvable</h3>
-        <button onClick={() => navigate('/listing')}>Retour à la liste</button>
+      <div style={{ display: 'grid', gap: 6 }}>
+        <label style={{ fontSize: 14 }}>{label}</label>
+        <div
+          style={{
+            display: 'flex', flexWrap: 'wrap', gap: 6,
+            border: '1px solid #ccc', borderRadius: 8, padding: 6, minHeight: 40, alignItems: 'center',
+          }}
+          onClick={() => inputRef.current?.focus()}
+        >
+          {values.map((v, i) => (
+            <span key={`${v}-${i}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 8px', borderRadius: 12, background: '#eef2ff', fontSize: 13 }}>
+              {v}
+              <button type="button" onClick={() => removeAt(i)} aria-label={`Supprimer ${v}`} style={{ border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 14, lineHeight: 1 }} title="Supprimer">×</button>
+            </span>
+          ))}
+          <input
+            ref={inputRef}
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={handleKeyDown}
+            onBlur={handleBlur}
+            onPaste={handlePaste}
+            placeholder={placeholder}
+            style={{ flex: 1, minWidth: 160, border: 'none', outline: 'none', fontSize: 14, padding: '6px 4px' }}
+          />
+        </div>
       </div>
     );
   }
 
-  // -------- UI --------
-  const chipBoxStyle = {
-    display: 'flex',
-    flexWrap: 'wrap',
-    gap: 6,
-    padding: 6,
-    border: '1px solid #ccc',
-    borderRadius: 6,
-    marginBottom: 8,
-    background: '#fff',
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setErr(null);
+
+    const payload = {
+      prenom: form.prenom || null,
+      nom: form.nom || null,
+      ville: form.ville || null,
+      code_postal: form.codePostal || null,
+      competences: form.competences ?? [],
+      materiel: form.materiel ?? [],
+      statut: form.statut || 'Inactif',
+      tarif: form.tarif === '' ? null : Number(form.tarif),
+      telephone: form.telephone || null,
+      email: form.email || null,
+      adresse: form.adresse || null,
+      notes: form.notes || null,
+    };
+
+    if (id) {
+      const { error } = await supabase.from('trainers').update(payload).eq('id', id);
+      if (error) return setErr(error.message);
+      navigate(`/formateur/view/${id}`);
+    } else {
+      const { data, error } = await supabase.from('trainers').insert([payload]).select().single();
+      if (error) return setErr(error.message);
+      navigate(`/formateur/view/${data.id}`);
+    }
   };
-  const chipStyle = {
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: 6,
-    padding: '4px 8px',
-    borderRadius: 999,
-    background: '#eef2ff',
-    border: '1px solid #c7d2fe',
-  };
-  const chipCloseStyle = {
-    background: 'transparent',
-    border: 'none',
-    cursor: 'pointer',
-    fontWeight: 'bold',
-  };
+
+  if (loading) return <div style={{ padding: '1rem' }}>Chargement…</div>;
 
   return (
     <div style={{ padding: '1rem' }}>
-      <h2>{index !== undefined ? 'Modifier' : 'Ajouter'} un formateur</h2>
+      <h2>{id ? 'Modifier' : 'Créer'} un formateur</h2>
+      {err && <div style={{ color: 'crimson', marginBottom: 12 }}>Erreur : {err}</div>}
 
-      <form onSubmit={handleSubmit}>
-        <input
-          type="text"
-          name="prenom"
-          placeholder="Prénom"
-          value={formateur.prenom || ''}
-          onChange={handleChange}
-          required
+      <form onSubmit={handleSubmit} style={{ display: 'grid', gap: 12, maxWidth: 600 }}>
+        <input name="prenom" placeholder="Prénom" value={form.prenom} onChange={onChange} required />
+        <input name="nom" placeholder="Nom" value={form.nom} onChange={onChange} required />
+        <input name="ville" placeholder="Ville" value={form.ville} onChange={onChange} />
+        <input name="codePostal" placeholder="Code postal" value={form.codePostal} onChange={onChange} />
+
+        <ChipsInput
+          label="Compétences"
+          values={form.competences}
+          onChangeValues={(vals) => setForm((p) => ({ ...p, competences: vals }))}
+          placeholder="Tape et appuie sur Entrée ou une virgule…"
         />
-        <input
-          type="text"
-          name="nom"
-          placeholder="Nom"
-          value={formateur.nom || ''}
-          onChange={handleChange}
-          required
-        />
-        <input
-          type="text"
-          name="ville"
-          placeholder="Ville"
-          value={formateur.ville || ''}
-          onChange={handleChange}
-          required
-        />
-        <input
-          type="text"
-          name="codePostal"
-          placeholder="Code postal"
-          value={formateur.codePostal || ''}
-          onChange={handleChange}
-          required
-        />
-        <input
-          type="text"
-          name="adresse"
-          placeholder="Adresse (facultatif)"
-          value={formateur.adresse || ''}
-          onChange={handleChange}
+        <ChipsInput
+          label="Matériel"
+          values={form.materiel}
+          onChangeValues={(vals) => setForm((p) => ({ ...p, materiel: vals }))}
+          placeholder="Tape et appuie sur Entrée ou une virgule…"
         />
 
-        <input
-          type="email"
-          name="mail"
-          placeholder="Adresse mail"
-          value={formateur.mail || ''}
-          onChange={handleChange}
-        />
-        <input
-          type="tel"
-          name="telephone"
-          placeholder="Numéro de téléphone"
-          value={formateur.telephone || ''}
-          onChange={handleChange}
-        />
+        <input name="tarif" type="number" step="0.01" placeholder="Tarif (€)" value={form.tarif} onChange={onChange} />
+        <input name="telephone" placeholder="Téléphone" value={form.telephone} onChange={onChange} />
+        <input name="email" type="email" placeholder="Email" value={form.email} onChange={onChange} />
+        <input name="adresse" placeholder="Adresse" value={form.adresse} onChange={onChange} />
 
-        {/* --- Compétences (chips) --- */}
-        <label style={{ display: 'block', marginTop: 8, marginBottom: 4 }}>Compétences :</label>
-        <div
-          style={chipBoxStyle}
-          onClick={() => document.getElementById('competence-input')?.focus()}
-        >
-          {formateur.competences.map((c) => (
-            <span key={c} style={chipStyle}>
-              {c}
-              <button
-                type="button"
-                onClick={(e) => { e.stopPropagation(); removeCompetence(c); }}
-                title="Supprimer"
-                style={chipCloseStyle}
-              >
-                ×
-              </button>
-            </span>
-          ))}
+        <label>Notes</label>
+        <textarea name="notes" rows={5} placeholder="Notes sur le formateur…" value={form.notes} onChange={onChange} />
 
-          <input
-            id="competence-input"
-            type="text"
-            placeholder="Tapez une compétence puis ; , ou Entrée"
-            value={competenceInput}
-            onChange={(e) => setCompetenceInput(e.target.value)}
-            onKeyDown={handleCompetenceKeyDown}
-            onPaste={handleCompetencePaste}
-            style={{ flex: 1, minWidth: 160, border: 'none', outline: 'none' }}
-          />
-        </div>
-
-        {/* --- Matériel (chips) --- */}
-        <label style={{ display: 'block', marginTop: 8, marginBottom: 4 }}>Matériel :</label>
-        <div
-          style={chipBoxStyle}
-          onClick={() => document.getElementById('materiel-input')?.focus()}
-        >
-          {formateur.materiel.map((m) => (
-            <span key={m} style={chipStyle}>
-              {m}
-              <button
-                type="button"
-                onClick={(e) => { e.stopPropagation(); removeMateriel(m); }}
-                title="Supprimer"
-                style={chipCloseStyle}
-              >
-                ×
-              </button>
-            </span>
-          ))}
-
-          <input
-            id="materiel-input"
-            type="text"
-            placeholder="Tapez un matériel puis ; , ou Entrée"
-            value={materielInput}
-            onChange={(e) => setMaterielInput(e.target.value)}
-            onKeyDown={handleMaterielKeyDown}
-            onPaste={handleMaterielPaste}
-            style={{ flex: 1, minWidth: 160, border: 'none', outline: 'none' }}
-          />
-        </div>
-
-        <input
-          type="text"
-          name="tarif"
-          placeholder="Tarif"
-          value={formateur.tarif || ''}
-          onChange={handleChange}
-        />
-
-        <label style={{ display: 'block', margin: '8px 0 4px' }}>Note :</label>
-        <textarea
-          name="note"
-          rows={6}
-          placeholder="Ta note (on remettra l’éditeur riche plus tard si tu veux)"
-          value={formateur.note || ''}
-          onChange={handleChange}
-          style={{ width: '100%', marginBottom: 12 }}
-        />
-
-        <select name="statut" value={formateur.statut || 'Standard'} onChange={handleChange}>
+        <select name="statut" value={form.statut} onChange={onChange}>
           <option value="Premium">Premium</option>
           <option value="Standard">Standard</option>
           <option value="Inactif">Inactif</option>
           <option value="Black">Black</option>
         </select>
 
-        <br /><br />
-        <button type="submit">Enregistrer</button>
-        <button type="button" onClick={() => navigate('/listing')}>Annuler</button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button type="submit">{id ? 'Enregistrer' : 'Créer'}</button>
+          <button type="button" onClick={() => navigate('/listing')}>Annuler</button>
+        </div>
       </form>
     </div>
   );

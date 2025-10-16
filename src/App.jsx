@@ -1,34 +1,39 @@
 // src/App.jsx
-import { Routes, Route, Link, Navigate } from 'react-router-dom';
-import Listing from './pages/Listing.jsx';
-import FormateurForm from './pages/FormateurForm.jsx';
-import FormateurViewPage from './pages/FormateurView.jsx';
+import { BrowserRouter as Router, Routes, Route, Link } from "react-router-dom";
 
-function NotFound() {
-  return <div style={{ padding: 20, color: '#b00' }}>404 route inconnue</div>;
-}
+import Listing from "./pages/Listing";
+import FormateurForm from "./pages/FormateurForm";
+import FormateurView from "./pages/FormateurView";
+import MigrateLocal from "./pages/MigrateLocal"; // outil temporaire
+import EnvCheck from "./pages/EnvCheck";         // page de diagnostic
 
 export default function App() {
   return (
-    <div style={{ fontFamily: 'system-ui', padding: 12 }}>
-      <nav style={{ display: 'flex', gap: 12, marginBottom: 12 }}>
-        <Link to="/listing">Listing</Link>
-        <Link to="/formateur/new">Ajouter un formateur</Link>
-      </nav>
+    <Router>
+      <div style={{ padding: "16px", fontFamily: "Arial, sans-serif" }}>
+        <nav style={{ marginBottom: 12 }}>
+          <Link to="/listing" style={{ marginRight: 12 }}>Listing</Link>
+          <Link to="/formateur/new" style={{ marginRight: 12 }}>Ajouter un formateur</Link>
+          <Link to="/env-check" style={{ fontWeight: 600, color: "green" }}>🧩 Vérifier Supabase</Link>
+        </nav>
 
-      <Routes>
-        {/* Redirige la racine vers /listing */}
-        <Route path="/" element={<Navigate to="/listing" replace />} />
+        <Routes>
+          {/* Accueil */}
+          <Route path="/" element={<Listing />} />
+          <Route path="/listing" element={<Listing />} />
 
-        {/* Pages */}
-        <Route path="/listing" element={<Listing />} />
-        <Route path="/formateur/new" element={<FormateurForm />} />
-        <Route path="/formateur/edit/:index" element={<FormateurForm />} />
-        <Route path="/formateur/view/:index" element={<FormateurViewPage />} />
+          {/* Fiche & édition par ID Supabase */}
+          <Route path="/formateur/view/:id" element={<FormateurView />} />
+          <Route path="/formateur/edit/:id" element={<FormateurForm />} />
 
-        {/* 404 */}
-        <Route path="*" element={<NotFound />} />
-      </Routes>
-    </div>
+          {/* Création */}
+          <Route path="/formateur/new" element={<FormateurForm />} />
+
+          {/* Outils */}
+          <Route path="/migrate-local" element={<MigrateLocal />} />
+          <Route path="/env-check" element={<EnvCheck />} />
+        </Routes>
+      </div>
+    </Router>
   );
 }

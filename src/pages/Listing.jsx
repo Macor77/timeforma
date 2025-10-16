@@ -1,18 +1,18 @@
-// src/pages/Listing.jsx
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { supabase } from '../lib/supabaseClient';
 
 export default function Listing() {
   const navigate = useNavigate();
 
-  // Données (brutes) et vue filtrée/triée
+  // Données
   const [formateurs, setFormateurs] = useState([]);
   const [filteredFormateurs, setFilteredFormateurs] = useState([]);
 
   // Filtres / tri / proximité
   const [lieu, setLieu] = useState('');
   const [filters, setFilters] = useState({
-    prenom: '', // <-- ajouté
+    prenom: '',
     nom: '',
     ville: '',
     competence: '',
@@ -21,51 +21,66 @@ export default function Listing() {
   });
   const [sort, setSort] = useState({ key: null, dir: 'asc' });
 
-  // Distances séparées pour ne pas casser les références
+  // Distances
   const [distances, setDistances] = useState(new Map());
 
-  // Chargement initial
+  // ---------- CHARGEMENT DEPUIS SUPABASE ----------
   useEffect(() => {
-    const data = JSON.parse(localStorage.getItem('formateurs')) || [];
-    setFormateurs(data);
-    setFilteredFormateurs(data);
-    setDistances(new Map());
+    (async () => {
+      console.log('📡 Chargement depuis Supabase...');
+      const { data, error } = await supabase
+        .from('trainers')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('❌ Erreur Supabase (load):', error);
+        return;
+      }
+
+      const mapped = (data || []).map((r) => ({
+        id: r.id,
+        prenom: r.prenom ?? '',
+        nom: r.nom ?? '',
+        ville: r.ville ?? '',
+        codePostal: r.code_postal ?? '',
+        competences: Array.isArray(r.competences) ? r.competences : (r.competences ?? []),
+        materiel: Array.isArray(r.materiel) ? r.materiel : (r.materiel ?? []),
+        statut: r.statut ?? 'Inactif',
+        latitude: r.latitude ?? undefined,
+        longitude: r.longitude ?? undefined,
+        created_at: r.created_at,
+      }));
+
+      setFormateurs(mapped);
+      setFilteredFormateurs(mapped);
+      setDistances(new Map());
+    })();
   }, []);
 
   // ---------- TRI ----------
   const compareValues = (a, b, key) => {
     const read = (obj) => {
       switch (key) {
-        case 'codePostal':
-          return obj.codePostal ?? '';
-        case 'prenom':
-          return (obj.prenom ?? '').toLowerCase();
-        case 'nom':
-          return (obj.nom ?? '').toLowerCase();
-        case 'ville':
-          return (obj.ville ?? '').toLowerCase();
-        case 'statut':
-          return (obj.statut ?? '').toLowerCase();
+        case 'codePostal': return obj.codePostal ?? '';
+        case 'prenom': return (obj.prenom ?? '').toLowerCase();
+        case 'nom': return (obj.nom ?? '').toLowerCase();
+        case 'ville': return (obj.ville ?? '').toLowerCase();
+        case 'statut': return (obj.statut ?? '').toLowerCase();
         case 'distance': {
           const d = distances.get(obj);
           return d === '-' || d === undefined ? null : Number(d);
         }
-        default:
-          return (obj[key] ?? '').toString().toLowerCase();
+        default: return (obj[key] ?? '').toString().toLowerCase();
       }
     };
 
-    const va = read(a);
-    const vb = read(b);
-
-    const isEmpty = v => v === null || v === undefined || v === '';
-    if (isEmpty(va) && !isEmpty(vb)) return 1;
-    if (!isEmpty(va) && isEmpty(vb)) return -1;
-    if (isEmpty(va) && isEmpty(vb)) return 0;
-
-    if (typeof va === 'number' && typeof vb === 'number') {
-      return va - vb;
-    }
+    const va = read(a), vb = read(b);
+    const empty = (v) => v === null || v === undefined || v === '';
+    if (empty(va) && !empty(vb)) return 1;
+    if (!empty(va) && empty(vb)) return -1;
+    if (empty(va) && empty(vb)) return 0;
+    if (typeof va === 'number' && typeof vb === 'number') return va - vb;
     return String(va).localeCompare(String(vb), 'fr', { sensitivity: 'base' });
   };
 
@@ -89,7 +104,7 @@ export default function Listing() {
       const matStr  = (Array.isArray(f.materiel)    ? f.materiel.join(', ')    : (f.materiel    || '')).toLowerCase();
 
       return (
-        (f.prenom ?? '').toLowerCase().includes(filters.prenom.toLowerCase()) && // <-- nouveau filtre
+        (f.prenom ?? '').toLowerCase().includes(filters.prenom.toLowerCase()) &&
         (f.nom ?? '').toLowerCase().includes(filters.nom.toLowerCase()) &&
         (f.ville ?? '').toLowerCase().includes(filters.ville.toLowerCase()) &&
         compStr.includes(filters.competence.toLowerCase()) &&
@@ -102,33 +117,30 @@ export default function Listing() {
   }, [filters, formateurs, sort, distances]);
 
   // ---------- SUPPRIMER ----------
-  const handleDelete = (realIndex) => {
-    if (realIndex < 0) return;
-
-    const f = formateurs[realIndex];
+  const handleDelete = async (id) => {
+    if (!id) return;
+    const f = formateurs.find((x) => x.id === id);
     const label = f ? `${f.prenom || ''} ${f.nom || ''}`.trim() : 'ce formateur';
 
-    const ok = window.confirm(
-      `Voulez-vous vraiment supprimer ${label} ?\nCette action est définitive.`
-    );
+    const ok = window.confirm(`Voulez-vous vraiment supprimer ${label} ?\nCette action est définitive.`);
     if (!ok) return;
 
-    const updated = [...formateurs];
-    updated.splice(realIndex, 1);
-    localStorage.setItem('formateurs', JSON.stringify(updated));
+    const { error } = await supabase.from('trainers').delete().eq('id', id);
+    if (error) {
+      console.error('❌ Erreur Supabase (delete):', error);
+      alert("Suppression échouée (voir console).");
+      return;
+    }
+
+    const updated = formateurs.filter((x) => x.id !== id);
     setFormateurs(updated);
     setDistances(new Map());
   };
 
   // ---------- PROXIMITÉ ----------
   const computeDistances = async (city) => {
-    if (!city) {
-      setDistances(new Map());
-      return;
-    }
-    const res = await fetch(
-      `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(city)}`
-    );
+    if (!city) { setDistances(new Map()); return; }
+    const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(city)}`);
     const data = await res.json();
     if (!Array.isArray(data) || data.length === 0) return;
 
@@ -144,8 +156,8 @@ export default function Listing() {
         const a =
           Math.sin(dLat / 2) ** 2 +
           Math.cos((lat * Math.PI) / 180) *
-            Math.cos((f.latitude * Math.PI) / 180) *
-            Math.sin(dLon / 2) ** 2;
+          Math.cos((f.latitude * Math.PI) / 180) *
+          Math.sin(dLon / 2) ** 2;
         const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
         const d = R * c;
         newMap.set(f, Number(d.toFixed(2)));
@@ -153,19 +165,15 @@ export default function Listing() {
         newMap.set(f, '-');
       }
     }
-    setDistances(newMap);
+    setDistances(new Map(newMap));
   };
 
   const handleRechercheProximite = async () => {
     await computeDistances(lieu);
-    if (sort.key === 'distance') {
-      setSort((prev) => ({ ...prev }));
-    }
+    if (sort.key === 'distance') setSort((prev) => ({ ...prev }));
   };
 
-  useEffect(() => {
-    if (lieu) computeDistances(lieu);
-  }, [formateurs]);
+  useEffect(() => { if (lieu) computeDistances(lieu); }, [formateurs]); // eslint-disable-line
 
   // ---------- UI HELPERS ----------
   const handleStatutChange = (e) => {
@@ -193,9 +201,9 @@ export default function Listing() {
     );
   };
 
-  const renderList = (value) =>
-    Array.isArray(value) ? value.join(', ') : (value || '');
+  const renderList = (value) => Array.isArray(value) ? value.join(', ') : (value || '');
 
+  // ---------- RENDER ----------
   return (
     <div style={{ padding: '1rem' }}>
       <h2>Liste des formateurs</h2>
@@ -218,31 +226,11 @@ export default function Listing() {
 
       {/* Filtres texte */}
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
-        <input
-          type="text"
-          placeholder="Filtrer par prénom"
-          onChange={(e) => setFilters({ ...filters, prenom: e.target.value })}
-        />
-        <input
-          type="text"
-          placeholder="Filtrer par nom"
-          onChange={(e) => setFilters({ ...filters, nom: e.target.value })}
-        />
-        <input
-          type="text"
-          placeholder="Filtrer par ville"
-          onChange={(e) => setFilters({ ...filters, ville: e.target.value })}
-        />
-        <input
-          type="text"
-          placeholder="Filtrer par compétence"
-          onChange={(e) => setFilters({ ...filters, competence: e.target.value })}
-        />
-        <input
-          type="text"
-          placeholder="Filtrer par matériel"
-          onChange={(e) => setFilters({ ...filters, materiel: e.target.value })}
-        />
+        <input type="text" placeholder="Filtrer par prénom" onChange={(e) => setFilters({ ...filters, prenom: e.target.value })} />
+        <input type="text" placeholder="Filtrer par nom" onChange={(e) => setFilters({ ...filters, nom: e.target.value })} />
+        <input type="text" placeholder="Filtrer par ville" onChange={(e) => setFilters({ ...filters, ville: e.target.value })} />
+        <input type="text" placeholder="Filtrer par compétence" onChange={(e) => setFilters({ ...filters, competence: e.target.value })} />
+        <input type="text" placeholder="Filtrer par matériel" onChange={(e) => setFilters({ ...filters, materiel: e.target.value })} />
       </div>
 
       {/* Filtre multi-statuts */}
@@ -276,12 +264,10 @@ export default function Listing() {
           </tr>
         </thead>
         <tbody>
-          {filteredFormateurs.map((f, idx) => {
-            const realIndex = formateurs.indexOf(f);
+          {filteredFormateurs.map((f) => {
             const d = distances.get(f);
-
             return (
-              <tr key={idx}>
+              <tr key={f.id}>
                 <td>{f.prenom}</td>
                 <td>{f.nom}</td>
                 <td>{renderList(f.competences)}</td>
@@ -290,9 +276,9 @@ export default function Listing() {
                 <td>{f.codePostal}</td>
                 <td>{typeof d === 'number' ? d.toFixed(2) : d || '-'}</td>
                 <td>
-                  <button onClick={() => navigate(`/formateur/view/${realIndex}`)} disabled={realIndex < 0}>Voir</button>{' '}
-                  <button onClick={() => navigate(`/formateur/edit/${realIndex}`)} disabled={realIndex < 0}>Modifier</button>{' '}
-                  <button onClick={() => handleDelete(realIndex)} disabled={realIndex < 0}>Supprimer</button>
+                  <button onClick={() => navigate(`/formateur/view/${f.id}`)} disabled={!f.id}>Voir</button>{' '}
+                  <button onClick={() => navigate(`/formateur/edit/${f.id}`)} disabled={!f.id}>Modifier</button>{' '}
+                  <button onClick={() => handleDelete(f.id)} disabled={!f.id}>Supprimer</button>
                 </td>
               </tr>
             );
